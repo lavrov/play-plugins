@@ -3,8 +3,12 @@ package play.modules.statsd.api
 import play.api._
 import play.api.mvc._
 import play.api.libs.concurrent.Execution.Implicits._
+
 import scala.collection.concurrent.TrieMap
 import java.util.Locale
+
+import play.api.routing.Router
+
 import util.control.NonFatal
 
 /**
@@ -44,19 +48,19 @@ class StatsdFilter extends EssentialFilter {
       val start = System.currentTimeMillis()
 
       // Calculate key
-      val key = rh.tags.get(Routes.ROUTE_VERB).map({ verb =>
-        val path = rh.tags(Routes.ROUTE_PATTERN)
+      val key = rh.tags.get(Router.Tags.RouteVerb).map({ verb =>
+        val path = rh.tags(Router.Tags.RoutePattern)
         val cacheKey = verb + path
-        prefix + keyCache.get(cacheKey).getOrElse {
-          val key = statsKeyFromComments(rh.tags(Routes.ROUTE_COMMENTS)).getOrElse {
+        prefix + keyCache.getOrElse(cacheKey, {
+          val key = statsKeyFromComments(rh.tags(Router.Tags.RouteComments)).getOrElse {
             // Convert paths of form GET /foo/bar/$paramname<regexp>/blah to foo.bar.paramname.blah.get
             val p = path.replaceAll("""\$([^<]+)<[^>]+>""", "$1").replace('/', pathSeparator).dropWhile(_ == pathSeparator)
-            val normalisedPath = if (p.lastOption.filter(_ != '.').isDefined) p + '.' else p
+            val normalisedPath = if (p.lastOption.exists(_ != '.')) p + '.' else p
             normalisedPath + verb.toLowerCase(Locale.ENGLISH)
           }
           keyCache.putIfAbsent(cacheKey, key)
           key
-        }
+        })
       }).getOrElse(totalPrefix + "handlerNotFound")
 
       Statsd.increment(key)

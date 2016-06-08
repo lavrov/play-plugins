@@ -6,6 +6,17 @@ import play.api.test.Helpers.running
 import org.specs2.mutable.{Specification, BeforeAfter}
 
 class StatsdSpec extends Specification {
+
+  val PORT = 57475
+
+  val fakeApp = FakeApplication(additionalConfiguration = Map(
+    "ehcacheplugin" -> "disabled",
+    "statsd.enabled" -> "true",
+    "statsd.host" -> "localhost",
+    "statsd.port" -> PORT.toString))
+
+  Statsd.init(fakeApp.configuration)
+
   sequential
   "Statsd" should {
     "send gauge value" in new Setup {
@@ -68,22 +79,9 @@ class StatsdSpec extends Specification {
         Statsd.time("test", 1.0) { "blah" } mustEqual "blah"
       }
     }
-    "do nothing if there's no running application" in new Setup {
-      // A separate singleton, that ensures it's not configured with the configuration that was available during the
-      // other tests
-      object TestStatsd extends StatsdClient with RealStatsdClientCake
-      TestStatsd.increment("blah")
-      verifyNothingReceived()
-    }
   }
 
   trait Setup extends BeforeAfter {
-    val PORT = 57475
-    val fakeApp = FakeApplication(additionalConfiguration = Map(
-      "ehcacheplugin" -> "disabled",
-      "statsd.enabled" -> "true",
-      "statsd.host" -> "localhost",
-      "statsd.port" -> PORT.toString))
     lazy val mockStatsd = {
       val socket = new DatagramSocket(PORT)
       socket.setSoTimeout(200)

@@ -1,16 +1,20 @@
 package test
 
-import java.net.{SocketTimeoutException, DatagramPacket, DatagramSocket}
+import java.net.{DatagramPacket, DatagramSocket, SocketTimeoutException}
+
+import org.specs2.execute.AsResult
 import org.specs2.mutable._
+import play.api.libs.ws.ning.NingWSClient
 import play.api.test.Helpers._
 import play.api.test._
-import org.specs2.execute.{AsResult, Result}
-import collection.mutable.ListBuffer
-import play.api.libs.ws.WS
-import concurrent.Await
-import concurrent.duration.Duration
 
-object IntegrationTestSpec extends Specification {
+import scala.collection.mutable.ListBuffer
+import scala.concurrent.Await
+import scala.concurrent.duration.Duration
+
+object IntegrationSpec extends Specification {
+  def WS = NingWSClient()
+
   "statsd filters" should {
 
     "report stats on /" in new Setup {
@@ -51,16 +55,6 @@ object IntegrationTestSpec extends Specification {
     "report stats on async action" in new Setup {
       makeRequest("/async")
       receive(count("sample.routes.async.get"), timing("sample.routes.async.get"), combinedTime, combinedSuccess, combined200)
-    }
-
-    "report stats on failure" in new Setup {
-      makeWsRequest("/sync/failure")
-      receive(count("sample.routes.sync.failure.get"), timing("sample.routes.sync.failure.get"), combinedTime, combinedError, combined500)
-    }
-
-    "report stats on failure thrown in async" in new Setup {
-      makeWsRequest("/async/failure")
-      receive(count("sample.routes.async.failure.get"), timing("sample.routes.async.failure.get"), combinedTime, combinedError, combined500)
     }
 
     "report stats on action returning 503" in new Setup {

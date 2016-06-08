@@ -3,9 +3,11 @@ package play.modules.statsd.api
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+
 import play.Logger
+
 import scala.util.Random
-import play.api.Play
+import play.api.Configuration
 
 /**
  * Configuration trait for the [[play.modules.statsd.api.StatsdClient]].
@@ -36,6 +38,8 @@ trait StatsdClientCake {
  */
 private[api] trait RealStatsdClientCake extends StatsdClientCake {
 
+  protected def configuration: Configuration
+
   // The property name for whether or not the statsd sending should be enabled.
   private val StatsdEnabledProperty = "statsd.enabled"
 
@@ -53,7 +57,7 @@ private[api] trait RealStatsdClientCake extends StatsdClientCake {
 
   // The stat prefix used by the client.
   override val statPrefix = {
-    Play.maybeApplication flatMap { _.configuration.getString(StatPrefixProperty) } getOrElse {
+    configuration.getString(StatPrefixProperty) getOrElse {
       Logger.warn("No stat prefix configured, using default of statsd")
       "statsd"
     }
@@ -74,16 +78,20 @@ private[api] trait RealStatsdClientCake extends StatsdClientCake {
    *
    * If statsd isn't enabled, it will be a noop function.
    */
-  override lazy val send: Function1[String, Unit] = {
+  override val send: String => Unit = {
     try {
       // Check if Statsd sending is enabled.
-      val enabled = please.booleanConfig(StatsdEnabledProperty)
+      val enabled = configuration.getBoolean(StatsdEnabledProperty).getOrElse(false)
       if (enabled) {
         // Initialize the socket, host, and port to be used to send the data.
         val socket = new DatagramSocket
-        val hostname = please.config(HostnameProperty)
+        val hostname = configuration.getString(HostnameProperty).getOrElse(
+          throw new IllegalStateException(s"$HostnameProperty undefined")
+        )
         val host = InetAddress.getByName(hostname)
-        val port = please.intConfig(PortProperty)
+        val port = configuration.getInt(PortProperty).getOrElse(
+          throw new IllegalStateException(s"$PortProperty undefined")
+        )
 
         // Return the real send function, partially applied with the
         // socket, host, and port so the client only has to call "send(stat)".
@@ -119,5 +127,5 @@ private[api] trait RealStatsdClientCake extends StatsdClientCake {
   /**
    * Don't do anything. Used if statsd isn't enabled or on config errors.
    */
-  private def noopSend(stat: String) = Unit
+  private def noopSend(stat: String) = ()
 }

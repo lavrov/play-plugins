@@ -1,6 +1,10 @@
 package play.modules.statsd.api
 
+import java.util.concurrent.atomic.AtomicReference
+
 import play.Logger
+import play.api.Configuration
+
 import scala.util.control.NonFatal
 
 /**
@@ -20,7 +24,50 @@ import scala.util.control.NonFatal
  *
  * The functionality is exposed to Play Apps using the [[play.modules.statsd.Statsd]] object.
  */
-trait StatsdClient {
+
+trait StatsdApi {
+  /**
+    * Increment a given stat key. Optionally give it a value and sampling rate.
+    *
+    * @param key The stat key to be incremented.
+    * @param value The amount by which to increment the stat. Defaults to 1.
+    * @param samplingRate The probability for which to increment. Defaults to 1.
+    */
+  def increment(key: String, value: Long = 1, samplingRate: Double = 1.0): Unit
+  /**
+    * Timing data for given stat key. Optionally give it a sampling rate.
+    *
+    * @param key The stat key to be timed.
+    * @param millis The number of milliseconds the operation took.
+    * @param samplingRate The probability for which to increment. Defaults to 1.
+    */
+  def timing(key: String, millis: Long, samplingRate: Double = 1.0): Unit
+  /**
+    * Time a given operation and send the resulting stat.
+    *
+    * @param key The stat key to be timed.
+    * @param samplingRate The probability for which to increment. Defaults to 1.
+    * @param timed An arbitrary block of code to be timed.
+    * @return The result of the timed operation.
+    */
+  def time[T](key: String, samplingRate: Double = 1.0)(timed: => T): T
+  /**
+    * Record the given value.
+    *
+    * @param key The stat key to update.
+    * @param value The value to record for the stat.
+    */
+  def gauge(key: String, value: Long): Unit
+  /**
+    * Record the given value.
+    *
+    * @param key The stat key to update.
+    * @param value The value to record for the stat.
+    */
+  def gauge(key: String, value: Long, delta: Boolean): Unit
+}
+
+trait StatsdClient extends StatsdApi {
   self: StatsdClientCake =>
 
   // Suffix for increment stats.
@@ -32,36 +79,14 @@ trait StatsdClient {
   // Suffix for gauge stats.
   private val GaugeSuffix = "g"
 
-  /**
-   * Increment a given stat key. Optionally give it a value and sampling rate.
-   *
-   * @param key The stat key to be incremented.
-   * @param value The amount by which to increment the stat. Defaults to 1.
-   * @param samplingRate The probability for which to increment. Defaults to 1.
-   */
   def increment(key: String, value: Long = 1, samplingRate: Double = 1.0) {
     safely { maybeSend(statFor(key, value, IncrementSuffix, samplingRate), samplingRate) }
   }
 
-  /**
-   * Timing data for given stat key. Optionally give it a sampling rate.
-   *
-   * @param key The stat key to be timed.
-   * @param millis The number of milliseconds the operation took.
-   * @param samplingRate The probability for which to increment. Defaults to 1.
-   */
   def timing(key: String, millis: Long, samplingRate: Double = 1.0) {
     safely { maybeSend(statFor(key, millis, TimingSuffix, samplingRate), samplingRate) }
   }
 
-  /**
-   * Time a given operation and send the resulting stat.
-   *
-   * @param key The stat key to be timed.
-   * @param samplingRate The probability for which to increment. Defaults to 1.
-   * @param timed An arbitrary block of code to be timed.
-   * @return The result of the timed operation.
-   */
   def time[T](key: String, samplingRate: Double = 1.0)(timed: => T): T = {
     val start = now()
     val result = timed
@@ -70,22 +95,10 @@ trait StatsdClient {
     result
   }
 
-  /**
-   * Record the given value.
-   *
-   * @param key The stat key to update.
-   * @param value The value to record for the stat.
-   */
   def gauge(key: String, value: Long) {
     safely { maybeSend(statFor(key, value, GaugeSuffix, 1.0), 1.0) }
   }
   
-  /**
-   * Record the given value.
-   *
-   * @param key The stat key to update.
-   * @param value The value to record for the stat.
-   */
   def gauge(key: String, value: Long, delta: Boolean) {
   	if (!delta) {
     	safely { maybeSend(statFor(key, value, GaugeSuffix, 1.0), 1.0) }
@@ -154,4 +167,23 @@ trait StatsdClient {
  * Wrap the [[play.modules.statsd.api.StatsdClient]] trait configured with
  * [[play.modules.statsd.api.RealStatsdClientCake]] in an object to make it available to the app.
  */
-object Statsd extends StatsdClient with RealStatsdClientCake
+object Statsd {
+  import language.implicitConversions
+
+  implicit def enrich(it: Statsd.type): StatsdApi = api
+
+  private var _api: Option[StatsdApi] = None
+
+  def api = _api.getOrElse(
+    throw new IllegalStateException("Statsd must be initialized before use")
+  )
+
+  def init(config: Configuration): Unit = {
+    _api = Some {
+      new StatsdClient with RealStatsdClientCake {
+        override protected def configuration = config
+      }
+    }
+  }
+
+}
